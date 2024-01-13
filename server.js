@@ -5,6 +5,43 @@ const path = require("path");
 const app = express();
 const PORT = 3000;
 
+// Define the directory for static files
+const publicDir = path.join(__dirname, "public");
+
+// Custom middleware to inject JavaScript into HTML files
+app.use((req, res, next) => {
+  const filePath = path.join(publicDir, req.url);
+
+  if (path.extname(filePath) === ".html") {
+    fs.readFile(filePath, "utf8", (err, data) => {
+      if (err) {
+        next();
+        return;
+      }
+
+      // Append the JavaScript for live reloading
+      const injectedScript = `
+            <script>
+               const eventSource = new EventSource("/events");
+               eventSource.onmessage = function(event) {
+                  if (event.data === "reload") {
+                     window.location.reload();
+                  }
+               };
+            </script>
+         `;
+
+      const modifiedData = data.replace("</body>", `${injectedScript}</body>`);
+      res.send(modifiedData);
+    });
+  } else {
+    next();
+  }
+});
+
+// Serve static files
+app.use(express.static(publicDir));
+
 // Middleware to serve static files
 app.use(express.static("public"));
 
@@ -36,8 +73,7 @@ app.listen(PORT, () => {
 });
 
 // Watch for changes in the public directory
-const publicDir = path.join(__dirname, "public");
-fs.watch(publicDir, (eventType, filename) => {
+fs.watch(publicDir, (_, filename) => {
   if (filename) {
     console.log(`File changed: ${filename}`);
     // Send a reload event to all connected clients
