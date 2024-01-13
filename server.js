@@ -1,87 +1,79 @@
-const express = require("express");
+const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const url = require("url");
 
-const app = express();
 const PORT = 3000;
-
-// Define the directory for static files
 const publicDir = path.join(__dirname, "public");
+let clients = [];
 
-// Custom middleware to inject JavaScript into HTML files
-app.use((req, res, next) => {
-  const filePath = path.join(publicDir, req.url);
+const server = http.createServer((req, res) => {
+  const parsedUrl = url.parse(req.url);
 
-  if (path.extname(filePath) === ".html") {
-    fs.readFile(filePath, "utf8", (err, data) => {
-      if (err) {
-        next();
-        return;
-      }
-
-      // Append the JavaScript for live reloading
-      const injectedScript = `
-            <script>
-               const eventSource = new EventSource("/events");
-               eventSource.onmessage = function(event) {
-                  if (event.data === "reload") {
-                     window.location.reload();
-                  }
-               };
-            </script>
-         `;
-
-      const modifiedData = data.replace("</body>", `${injectedScript}</body>`);
-      res.send(modifiedData);
+  // SSE endpoint
+  if (parsedUrl.pathname === "/events") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     });
-  } else {
-    next();
+
+    res.write("data: connected\n\n");
+    clients.push(res);
+
+    req.on("close", () => {
+      clients = clients.filter((client) => client !== res);
+    });
+    return;
   }
-});
 
-// Serve static files
-app.use(express.static(publicDir));
+  // Serve static files
+  let filePath = path.join(publicDir, parsedUrl.pathname);
+  if (!path.extname(filePath)) {
+    filePath = path.join(filePath, "index.html");
+  }
 
-// Middleware to serve static files
-app.use(express.static("public"));
+  fs.readFile(filePath, "utf8", (err, content) => {
+    if (err) {
+      res.writeHead(404);
+      res.end("File not found");
+      return;
+    }
 
-// SSE endpoint for sending reload messages to the client
-app.get("/events", (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
+    // Inject JavaScript
+    if (path.extname(filePath) === ".html") {
+      const injectedScript = `
+                <script>
+                    const eventSource = new EventSource("/events");
+                    eventSource.onmessage = function(event) {
+                        if (event.data === "reload") {
+                            window.location.reload();
+                        }
+                    };
+                </script>
+            `;
+      content = content.replace("</body>", `${injectedScript}</body>`);
+    }
 
-  // Add this response (client) to the clients array
-  clients.push(res);
-
-  // Send a ping event every 10 seconds to keep the connection open
-  const intervalId = setInterval(() => {
-    res.write("data: ping\n\n");
-  }, 10000);
-
-  // Close the connection when client closes it
-  req.on("close", () => {
-    clearInterval(intervalId);
-    clients = clients.filter((client) => client !== res);
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(content, "utf-8");
   });
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
-
-// Watch for changes in the public directory
-fs.watch(publicDir, (_, filename) => {
-  if (filename) {
-    console.log(`File changed: ${filename}`);
-    // Send a reload event to all connected clients
-    for (const client of clients) {
-      client.write("data: reload\n\n");
+// File watching and sending SSE messages
+const watcher = fs.watch(
+  publicDir,
+  { recursive: true },
+  (eventType, filename) => {
+    if (filename) {
+      console.log(`File changed: ${filename}`);
+      clients.forEach((client) => {
+        client.write("data: reload\n\n");
+      });
     }
   }
-});
+);
 
-// Keep track of connected clients
-let clients = [];
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
