@@ -60,8 +60,8 @@ const server = http.createServer((req, res) => {
 });
 
 // File watching and sending SSE messages
-fs.watch(__dirname, { recursive: true }, (eventType, filename) => {
-  if (filename) {
+fs.watch(__dirname, { recursive: true }, (_, filename) => {
+  if (filename && filename.endsWith(".html")) {
     console.log(`File changed: ${filename}`);
     clients.forEach((client) => {
       client.write("data: reload\n\n");
