@@ -4,7 +4,6 @@ const path = require("path");
 const url = require("url");
 
 const PORT = 3000;
-const publicDir = path.join(__dirname, "public");
 let clients = [];
 
 const server = http.createServer((req, res) => {
@@ -28,7 +27,7 @@ const server = http.createServer((req, res) => {
   }
 
   // Serve static files
-  let filePath = path.join(publicDir, parsedUrl.pathname);
+  let filePath = path.join(__dirname, parsedUrl.pathname);
   if (!path.extname(filePath)) {
     filePath = path.join(filePath, "index.html");
   }
@@ -61,18 +60,14 @@ const server = http.createServer((req, res) => {
 });
 
 // File watching and sending SSE messages
-const watcher = fs.watch(
-  publicDir,
-  { recursive: true },
-  (eventType, filename) => {
-    if (filename) {
-      console.log(`File changed: ${filename}`);
-      clients.forEach((client) => {
-        client.write("data: reload\n\n");
-      });
-    }
+fs.watch(__dirname, { recursive: true }, (eventType, filename) => {
+  if (filename) {
+    console.log(`File changed: ${filename}`);
+    clients.forEach((client) => {
+      client.write("data: reload\n\n");
+    });
   }
-);
+});
 
 server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
